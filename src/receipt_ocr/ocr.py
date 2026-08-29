@@ -1,0 +1,2 @@
+"""Replaceable OCR engine adapters."""
+

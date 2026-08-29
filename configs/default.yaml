@@ -1,0 +1,32 @@
+project:
+  name: receipt_ocr_data_pipeline
+  random_seed: 42
+
+preprocessing:
+  enabled: true
+  grayscale: true
+  denoise: false
+  deskew: false
+  resize_max_width: 2000
+
+ocr:
+  engine: tesseract
+  language: eng
+  confidence_threshold: 0.50
+
+extraction:
+  methods:
+    - regex
+    - keyword
+  fuzzy_matching: false
+  fuzzy_threshold: 0.85
+  fields:
+    - store_name
+    - date
+    - total_amount
+
+storage:
+  format: jsonl
+  output_dir: data/processed
+  save_intermediate_results: true
+

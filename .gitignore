@@ -1,0 +1,50 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Environments and packaging
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Dataset contents (keep directory placeholders)
+data/raw/*
+!data/raw/.gitkeep
+data/external/*
+!data/external/.gitkeep
+data/interim/*
+!data/interim/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Generated experiment artifacts
+reports/figures/*
+!reports/figures/.gitkeep
+reports/tables/*
+!reports/tables/.gitkeep
+reports/metrics/*
+!reports/metrics/.gitkeep
+
