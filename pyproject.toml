@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A modular data processing pipeline for extracting structured data from receipt images."
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["pandas>=2.0", "PyYAML>=6.0"]
+dependencies = ["pandas>=2.0", "PyYAML>=6.0", "Pillow>=10", "numpy>=2", "opencv-python-headless>=4.10"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]

@@ -13,6 +13,14 @@ from receipt_ocr.extraction import extract_fields
 from receipt_ocr.normalization import numeric_amount, normalize_timestamp
 from receipt_ocr.ocr import check_tesseract, run_tesseract
 from receipt_ocr.ocr_cache import OCRCache, build_ocr_signature
+from receipt_ocr.preprocessing import (
+    orientation_resize,
+    orientation_resize_crop,
+    orientation_resize_perspective_crop,
+    orientation_crop_resize,
+    orientation_resize_grayscale,
+    orientation_resize_grayscale_clahe,
+)
 from receipt_ocr.storage import append_jsonl
 from receipt_ocr.validation import validate_structured_fields
 
@@ -102,7 +110,50 @@ class ReceiptOCRPipeline:
         if self.check_ocr and self.ocr_runner is run_tesseract:
             check_tesseract(language)
 
-        # Step 4 will replace this direct pass-through with real preprocessing.
+        preprocessing = self.config.get("preprocessing", {})
+        ocr_path = path
+        preprocessing_metadata: dict[str, Any] = {}
+        if preprocessing.get("enabled"):
+            variant = preprocessing.get("variant")
+            supported_variants = {
+                "orientation_resize": orientation_resize,
+                "orientation_resize_crop": orientation_resize_crop,
+                "orientation_resize_perspective_crop": orientation_resize_perspective_crop,
+                "orientation_crop_resize": orientation_crop_resize,
+                "orientation_resize_grayscale": orientation_resize_grayscale,
+                "orientation_resize_grayscale_clahe": orientation_resize_grayscale_clahe,
+            }
+            if variant not in supported_variants:
+                raise ValueError(f"Unsupported preprocessing variant: {variant}")
+            ocr_path = Path(preprocessing["output_dir"]) / path.name
+            extra_options = (
+                {
+                    "clahe_clip_limit": float(preprocessing.get("clahe_clip_limit", 2.0)),
+                    "clahe_grid_size": int(preprocessing.get("clahe_grid_size", 8)),
+                }
+                if variant == "orientation_resize_grayscale_clahe"
+                else {}
+            )
+            if variant == "orientation_resize_crop":
+                extra_options = {"crop_padding": float(preprocessing.get("crop_padding", 0.03))}
+            if variant == "orientation_resize_perspective_crop":
+                extra_options = {"crop_padding": float(preprocessing.get("crop_padding", 0.01))}
+            if variant == "orientation_crop_resize":
+                extra_options = {
+                    "crop_padding": float(preprocessing.get("crop_padding", 0.01)),
+                    "min_receipt_area": float(preprocessing.get("min_receipt_area", 0.08)),
+                    "min_crop_score": float(preprocessing.get("min_crop_score", 0.38)),
+                }
+            preprocessing_metadata = supported_variants[variant](
+                path,
+                ocr_path,
+                target_width=int(preprocessing.get("resize_width", 1600)),
+                max_upscale=float(preprocessing.get("resize_max_upscale", 4.0)),
+                min_orientation_confidence=float(
+                    preprocessing.get("orientation_min_confidence", 5.0)
+                ),
+                **extra_options,
+            )
         cache_config = ocr_config.get("cache", {})
         cache_signature = build_ocr_signature(
             ocr_config["engine"], language, psm, self.config.get("preprocessing", {})
@@ -110,12 +161,12 @@ class ReceiptOCRPipeline:
         if cache_config.get("enabled"):
             cache = OCRCache(cache_config["directory"])
             ocr_result, cache_hit, cache_key = cache.get_or_run(
-                path,
+                ocr_path,
                 cache_signature,
-                lambda: self.ocr_runner(path, language, psm),
+                lambda: self.ocr_runner(ocr_path, language, psm),
             )
         else:
-            ocr_result = self.ocr_runner(path, language, psm)
+            ocr_result = self.ocr_runner(ocr_path, language, psm)
             cache_hit, cache_key = False, None
         cleaned_lines = self._select_lines(ocr_result)
         all_raw_fields = extract_fields(cleaned_lines)
@@ -130,7 +181,8 @@ class ReceiptOCRPipeline:
             "raw_fields": raw_fields,
             "validation": validate_structured_fields(fields),
             "pipeline": {
-                "preprocessing_applied": False,
+                "preprocessing_applied": bool(preprocessing.get("enabled")),
+                "preprocessing": preprocessing_metadata,
                 "ocr_engine": ocr_config["engine"],
                 "ocr_language": language,
                 "ocr_psm": psm,

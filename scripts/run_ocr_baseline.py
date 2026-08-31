@@ -21,6 +21,14 @@ from receipt_ocr.extraction import extract_fields
 from receipt_ocr.normalization import numeric_amount, normalize_timestamp
 from receipt_ocr.ocr import check_tesseract, run_tesseract
 from receipt_ocr.ocr_cache import OCRCache, build_ocr_signature
+from receipt_ocr.preprocessing import (
+    orientation_resize,
+    orientation_crop_resize,
+    orientation_resize_crop,
+    orientation_resize_perspective_crop,
+    orientation_resize_grayscale,
+    orientation_resize_grayscale_clahe,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,6 +47,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-dir", type=Path, default=Path("data/interim/mc_ocr2021/ocr_cache"))
     parser.add_argument("--refresh-cache", action="store_true")
     parser.add_argument("--sample-file", type=Path, help="Reuse a CSV containing img_id values.")
+    parser.add_argument("--preprocessing", choices=["none", "orientation_resize", "orientation_crop_resize", "orientation_resize_crop", "orientation_resize_perspective_crop", "orientation_resize_grayscale", "orientation_resize_grayscale_clahe"], default="none")
+    parser.add_argument("--preprocessed-dir", type=Path, default=Path("data/interim/mc_ocr2021/preprocessed/step1_orientation_resize"))
+    parser.add_argument("--resize-width", type=int, default=1600)
+    parser.add_argument("--resize-max-upscale", type=float, default=4.0)
+    parser.add_argument("--orientation-min-confidence", type=float, default=5.0)
+    parser.add_argument("--clahe-clip-limit", type=float, default=2.0)
+    parser.add_argument("--clahe-grid-size", type=int, default=8)
+    parser.add_argument("--crop-padding", type=float, default=0.03)
+    parser.add_argument("--crop-debug-dir", type=Path)
+    parser.add_argument("--min-receipt-area", type=float, default=0.08)
+    parser.add_argument("--min-crop-score", type=float, default=0.38)
     return parser.parse_args()
 
 
@@ -89,9 +108,21 @@ def main() -> None:
 
     raw_path = output_dir / "raw_ocr.jsonl"
     cache = OCRCache(args.cache_dir)
-    cache_signature = build_ocr_signature(
-        "tesseract", args.language, args.psm, {"enabled": False}
-    )
+    preprocessing_config = {
+        "enabled": args.preprocessing != "none",
+        "variant": args.preprocessing,
+        "orientation_strategy": "osd_then_landscape_ocr_score_v2",
+        "resize_width": args.resize_width,
+        "resize_max_upscale": args.resize_max_upscale,
+        "orientation_min_confidence": args.orientation_min_confidence,
+        "clahe_clip_limit": args.clahe_clip_limit,
+        "clahe_grid_size": args.clahe_grid_size,
+        "crop_padding": args.crop_padding,
+        "min_receipt_area": args.min_receipt_area,
+        "min_crop_score": args.min_crop_score,
+        "crop_strategy": "four_point_perspective_v1" if args.preprocessing == "orientation_resize_perspective_crop" else "contour_paper_color_v2",
+    }
+    cache_signature = build_ocr_signature("tesseract", args.language, args.psm, preprocessing_config)
     cache_hits = 0
     records: list[dict] = []
     with raw_path.open("w", encoding="utf-8") as raw_file:
@@ -99,10 +130,49 @@ def main() -> None:
             image_path = args.images_dir / gt_row["img_id"]
             if not image_path.is_file():
                 raise FileNotFoundError(f"Image not found: {image_path}")
+            preprocess_metadata = {}
+            ocr_image_path = image_path
+            if args.preprocessing in {"orientation_resize", "orientation_crop_resize", "orientation_resize_crop", "orientation_resize_perspective_crop", "orientation_resize_grayscale", "orientation_resize_grayscale_clahe"}:
+                ocr_image_path = args.preprocessed_dir / gt_row["img_id"]
+                preprocess = {
+                    "orientation_resize": orientation_resize,
+                    "orientation_crop_resize": orientation_crop_resize,
+                    "orientation_resize_crop": orientation_resize_crop,
+                    "orientation_resize_perspective_crop": orientation_resize_perspective_crop,
+                    "orientation_resize_grayscale": orientation_resize_grayscale,
+                    "orientation_resize_grayscale_clahe": orientation_resize_grayscale_clahe,
+                }[args.preprocessing]
+                extra_options = (
+                    {"clahe_clip_limit": args.clahe_clip_limit, "clahe_grid_size": args.clahe_grid_size}
+                    if args.preprocessing == "orientation_resize_grayscale_clahe"
+                    else {}
+                )
+                if args.preprocessing == "orientation_resize_crop":
+                    extra_options = {"crop_padding": args.crop_padding}
+                if args.preprocessing == "orientation_resize_perspective_crop":
+                    extra_options = {
+                        "crop_padding": args.crop_padding,
+                        "debug_path": args.crop_debug_dir / gt_row["img_id"] if args.crop_debug_dir else None,
+                    }
+                if args.preprocessing == "orientation_crop_resize":
+                    extra_options = {
+                        "crop_padding": args.crop_padding,
+                        "min_receipt_area": args.min_receipt_area,
+                        "min_crop_score": args.min_crop_score,
+                        "debug_path": args.crop_debug_dir / gt_row["img_id"] if args.crop_debug_dir else None,
+                    }
+                preprocess_metadata = preprocess(
+                    image_path,
+                    ocr_image_path,
+                    target_width=args.resize_width,
+                    max_upscale=args.resize_max_upscale,
+                    min_orientation_confidence=args.orientation_min_confidence,
+                    **extra_options,
+                )
             ocr, cache_hit, cache_key = cache.get_or_run(
-                image_path,
+                ocr_image_path,
                 cache_signature,
-                lambda: run_tesseract(image_path, language=args.language, psm=args.psm),
+                lambda: run_tesseract(ocr_image_path, language=args.language, psm=args.psm),
                 refresh=args.refresh_cache,
             )
             cache_hits += int(cache_hit)
@@ -116,6 +186,7 @@ def main() -> None:
                 "total_cost_gt": gt_row.get("total_cost"), "total_cost_pred": fields["total_cost"],
                 "anno_image_quality": gt_row.get("anno_image_quality"),
                 "ocr_text": ocr["text"],
+                **preprocess_metadata,
             })
             source = "cache" if cache_hit else "ocr"
             print(f"[{position:02d}/{len(sample):02d}] [{source}] {gt_row['img_id']}")

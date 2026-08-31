@@ -4,10 +4,16 @@ project:
 
 preprocessing:
   enabled: false
-  grayscale: true
-  denoise: false
-  deskew: false
-  resize_max_width: 2000
+  variant: orientation_crop_resize
+  resize_width: 1600
+  resize_max_upscale: 4.0
+  orientation_min_confidence: 5.0
+  clahe_clip_limit: 2.0
+  clahe_grid_size: 8
+  crop_padding: 0.01
+  min_receipt_area: 0.08
+  min_crop_score: 0.38
+  output_dir: data/interim/mc_ocr2021/preprocessed/orientation_crop_resize
 
 ocr:
   engine: tesseract

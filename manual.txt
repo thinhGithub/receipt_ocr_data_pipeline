@@ -1,46 +1,129 @@
-NHẬT KÝ VÀ TIẾN ĐỘ
-Cập nhật: 31/08/2026
+30/8/2026
+1. python scripts/inspect_dataset.py -> Sẽ kiểm tra raw dataset và lưu kết quả vào report/metrics/dataset_inspection
+1.1 Chuẩn hóa nhãn
+- Phát hiện 1 nhãn sai: TOTAL_TOTAL_COST.
+- Chuẩn hóa thành TOTAL_COST.
 
-1. Dữ liệu
-- Chạy: python scripts/inspect_dataset.py
-- Đã sửa nhãn TOTAL_TOTAL_COST thành TOTAL_COST.
-- Đã loại 2 ảnh không có annotation.
-- Kết quả: 1.153 ảnh hợp lệ, lưu trong data/interim/mc_ocr2021/.
+1.2 Loại mẫu không có annotation
+- mcocr_public_145014iwhec.jpg: ảnh nhòe, anno_num = 0.
+- mcocr_public_145014jndnz.jpg: chữ quá nhạt ở một số vùng, anno_num = 0.
+- Quyết định: loại hai mẫu khỏi tập dữ liệu dùng để huấn luyện và đánh giá.
 
-2. Ground truth
-- Chạy: python scripts/build_ground_truth.py
-- Bốn trường: seller, address, timestamp, total_cost.
-- Tỷ lệ thiếu nhãn gốc: seller 7,11%; address 6,59%; timestamp 5,64%;
-  total_cost 6,16%.
+Sau làm sạch:
+- 1.153 ảnh hợp lệ.
+- Không còn annotation bị thiếu.
+- Bộ nhãn gồm SELLER, ADDRESS, TIMESTAMP và TOTAL_COST.
 
-3. Pipeline đã hoàn thành
-- OCR Tesseract pretrained vie+eng.
-- Làm sạch OCR, trích xuất đủ 4 trường và xử lý address nhiều dòng.
-- Chuẩn hóa timestamp, total_cost và kiểm tra dữ liệu hợp lệ.
-- Pipeline end-to-end, cấu hình YAML và lưu JSONL tùy chọn.
-- Cache OCR và chia cố định tập development/final.
-- Đánh giá từng trường và macro evaluation.
+Đã lưu trong data/interim
 
-4. Baseline development (40 ảnh, seed 42)
-- Seller: coverage 94,87%; fuzzy similarity 44,95%.
-- Address: coverage 97,22%; fuzzy similarity 52,31%.
-- Timestamp: coverage 79,41%; exact match 67,65%.
-- Total cost: coverage 53,85%; exact numeric match 35,90%.
-- Macro: coverage 81,34%; exact match 30,43%.
-- Cache: 40 hit, 0 miss.
+2. python scripts/build_ground_truth.py
+======================================================================
+GROUND TRUTH VALIDATION
+======================================================================
+Rows: 1,153
 
-Kết quả nằm tại reports/metrics/ocr_baseline/development/.
+Missing values by field:
+seller      :   82 (7.11%)
+address     :   76 (6.59%)
+timestamp   :   65 (5.64%)
+total_cost  :   71 (6.16%)
 
-5. Chưa hoàn thành
-- Preprocessing ảnh thực tế: grayscale, resize, threshold, denoise, deskew...
-- Thí nghiệm so sánh ảnh gốc/preprocessed và các chế độ PSM.
-- Cải thiện rule cho seller, address và total_cost.
-- Chạy đánh giá chính thức trên tập final.
-- Tạo notebook và báo cáo kết quả cuối cùng.
+======================================================================
+FIELD STATISTICS
+======================================================================
 
-6. Lệnh thường dùng
-python scripts/inspect_dataset.py
-python scripts/build_ground_truth.py
-python scripts/run_ocr_baseline.py --split development --sample-size 40 --seed 42
-python scripts/run_ocr_baseline.py --split final --sample-size 0
-python -m pytest -q
+SELLER
+  Receipts with field : 1,071
+  Total segments      : 1,171
+  Mean segments/image : 1.02
+  Max segments/image  : 3
+
+ADDRESS
+  Receipts with field : 1,077
+  Total segments      : 1,952
+  Mean segments/image : 1.69
+  Max segments/image  : 5
+
+TIMESTAMP
+  Receipts with field : 1,088
+  Total segments      : 1,347
+  Mean segments/image : 1.17
+  Max segments/image  : 6
+
+TOTAL_COST
+  Receipts with field : 1,082
+  Total segments      : 2,115
+  Mean segments/image : 1.83
+  Max segments/image  : 25
+
+3. python scripts/run_ocr_baseline.py --sample-size 40 --seed 42
+Hệ thống chọn ngẫu nhiên 40 ảnh với seed = 42, sử dụng Tesseract pretrained vie+eng, sau đó trích xuất ba trường seller, timestamp và total_cost.
+Kết quả:
+Trường	  Coverage	  Metric
+Seller	  100%	      Fuzzy similarity trung bình: 64,03%
+Seller	  100%	      Normalized exact match: 25,71%
+Timestamp	82,50%	    Normalized exact match: 52,50%
+Total cost	58,97%	  Exact numeric match: 41,03%
+
+
+Nhận xét:
+- Timestamp là trường dễ trích xuất nhất bằng regex.
+- Total cost có thể nhận diện nhưng keyword đôi khi bị OCR đọc sai, làm rule không tìm được giá trị.
+- Seller khó nhất vì tên cửa hàng có thể nằm ở nhiều vị trí, sử dụng logo hoặc font cách điệu.
+- Năm ảnh có chất lượng dưới 0,5 cho kết quả thấp rõ rệt.
+- Một số lỗi đến từ annotation gốc, chẳng hạn timestamp hoặc total cost không chứa giá trị hợp lệ.
+- Có 6 kết quả raw OCR bị lẫn dòng TSV do cách parser xử lý dấu ngoặc kép. Cần sửa parser và chạy lại trước khi sử dụng metrics làm kết quả chính thức.
+Các file kết quả được lưu tại:
+reports/metrics/ocr_baseline/
+├── sample.csv
+├── raw_ocr.jsonl
+├── results.csv
+├── results_detailed.csv
+├── metrics.json
+└── error_examples.csv
+Kết luận sơ bộ: pretrained OCR có thể sử dụng cho POC hóa đơn tiếng Việt, đặc biệt với ảnh rõ và trường ngày giờ. Rule-based extraction khả thi nhưng cần cải thiện xử lý seller, fuzzy keyword cho total cost và normalization số tiền.
+
+
+
+31/8/2026
+Những gì CHƯA LÀM
+- [Missing] Không có preprocessing ảnh thực tế.
+- [Missing] Không có grayscale.
+- [Missing] Không có resize.
+- [Missing] Không có threshold/binarization.
+- [Missing] Không có denoise.
+- [Missing] Không có contrast enhancement.
+- [Missing] Không có deskew.
+- [Missing] Không có sharpening.
+- [Missing] Không có morphology.
+- [Missing] Không có crop logic.
+- [Missing] Không có ADDRESS prediction.
+- [Missing] Không có xử lý multiline address.
+- [Missing] Không có ADDRESS evaluation.
+- [Missing] Không có end-to-end implementation trong ReceiptOCRPipeline.run().
+- [Missing] Không có experiment so sánh raw image và preprocessed image.
+- [Missing] Không có experiment so sánh PSM.
+- [Missing] Không có cache/reuse OCR.
+- [Missing] Không có structured output cuối cùng trong data/processed.
+- [Missing] Không có macro evaluation đủ bốn field.
+- [Missing] Không có notebook thực nghiệm; thư mục notebooks chỉ chứa .gitkeep.
+
+Những lỗi hoặc vấn đề thiết kế hiện tại
+5.1. Chưa có ADDRESS KIE
+5.2. Timestamp regex nhận thời gian thành ngày
+5.3. Pipeline public chưa chạy được
+5.4. Config không được sử dụng
+5.5. README vẫn mô tả ba field
+5.6. Không có preprocessing dù config ghi enabled
+5.7. OCR artifact chưa phải cache
+5.8. Validation timestamp không kiểm tra tính hợp lệ
+5.9. Total-cost heuristic quá phụ thuộc cùng dòng
+5.10. Chưa có split đánh giá rõ ràng
+5.11. Hai raw row bị loại nhưng không có bước tái tạo interim
+5.12. Script hard-code đường dẫn tuyệt đối
+5.13. Dev dependency chưa được cài trong .venv
+5.14. Test normalization dùng text mojibake
+5.15. Kết quả kiểm tra ảnh có thể gây hiểu nhầm
+
+Lần 1: 40 ảnh · Coverage 81.3% · Exact match 30.4%
+Lần 2: 40 ảnh · Coverage 82.6% · Exact match 36.9% (resize & orient)
