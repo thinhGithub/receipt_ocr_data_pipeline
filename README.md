@@ -1,146 +1,93 @@
 # Receipt OCR Data Pipeline
 
-## Overview
+Pipeline POC chuyển ảnh hóa đơn tiếng Việt thành dữ liệu có cấu trúc gồm bốn
+trường: `seller`, `address`, `timestamp` và `total_cost`.
 
-`receipt_ocr_data_pipeline` is a modular proof-of-concept data processing
-pipeline that converts receipt images with different layouts into structured
-records. OCR is treated as a replaceable component rather than the research
-focus of the project.
-
-## Problem Statement
-
-Receipt images are unstructured and vary in layout, image quality, language,
-and formatting. The pipeline extracts and normalizes four fields:
-
-- Seller
-- Address
-- Timestamp
-- Total cost
-
-The goal is to make every processing stage independently testable and easy to
-replace while keeping the POC simple.
-
-## Pipeline
+## Luồng xử lý
 
 ```text
-Receipt Images
-  -> Data Ingestion
-  -> Image Quality Check / Preprocessing
-  -> OCR
-  -> Raw Text
-  -> Text Cleaning
-  -> Field Extraction
-  -> Data Normalization
-  -> Data Validation
-  -> Structured Data Storage
-  -> Evaluation
+Ảnh hóa đơn -> Tesseract OCR -> Làm sạch văn bản -> Trích xuất trường
+             -> Chuẩn hóa -> Kiểm tra hợp lệ -> JSON/JSONL
 ```
 
-## Project Structure
+Hệ thống hiện hỗ trợ:
 
-```text
-configs/                 Runtime and experiment configuration
-data/                    Raw, external, interim, and processed data layers
-docs/                    Design and project documentation
-notebooks/               Exploration and experiment notebooks only
-reports/                 Generated figures, tables, and metrics
-scripts/                 Thin command-line entry scripts
-src/receipt_ocr/         Reusable pipeline source code
-tests/                   Automated tests
-```
+- Tesseract pretrained với ngôn ngữ `vie+eng`;
+- trích xuất bốn trường bằng regex và keyword, gồm địa chỉ nhiều dòng;
+- chuẩn hóa ngày giờ và số tiền;
+- cache kết quả OCR theo nội dung ảnh và cấu hình;
+- chia tập `development`/`final` cố định để đánh giá;
+- lưu kết quả dạng JSONL khi bật trong cấu hình.
 
-Reusable logic belongs in `src/receipt_ocr/`; notebooks should import that
-logic instead of duplicating it.
+Preprocessing ảnh thực tế chưa được tích hợp; ảnh hiện được đưa trực tiếp vào
+Tesseract.
 
-## Dataset
+## Cài đặt
 
-Place original receipt images in `data/raw/`. Put third-party reference data
-in `data/external/`, intermediate artifacts in `data/interim/`, and final
-structured outputs in `data/processed/`. Dataset contents are ignored by Git
-by default; only placeholder files are tracked.
-
-Document dataset sources, licenses, annotation format, and split strategy here
-once a dataset has been selected.
-
-## Installation
-
-Python 3.10 or newer is recommended.
+Yêu cầu Python 3.10+, Tesseract OCR và language data `vie`, `eng`.
 
 ```bash
 python -m venv .venv
-# Activate the environment for your operating system.
 python -m pip install -e ".[dev]"
 ```
 
-Copy `.env.example` to `.env` if local environment variables are needed.
-OCR engines and their Python adapters will be added after an engine is chosen.
+Cấu hình mặc định nằm tại `configs/default.yaml`.
 
-## Usage
+## Chuẩn bị dữ liệu
 
-The end-to-end entry point loads `configs/default.yaml` and runs OCR, text
-cleaning, field extraction, normalization, and validation:
+Đặt bộ MC-OCR2021 trong `data/raw/mc_ocr2021/`, sau đó chạy:
+
+```bash
+python scripts/inspect_dataset.py
+python scripts/build_ground_truth.py
+```
+
+Dữ liệu đã làm sạch có 1.153 ảnh hợp lệ. Ground truth được lưu trong
+`data/interim/mc_ocr2021/`.
+
+## Chạy baseline
+
+```bash
+# Phát triển rule trên mẫu 40 ảnh cố định
+python scripts/run_ocr_baseline.py --split development --sample-size 40 --seed 42
+
+# Đánh giá cuối cùng sau khi đã chốt rule
+python scripts/run_ocr_baseline.py --split final --sample-size 0
+```
+
+Kết quả nằm trong `reports/metrics/ocr_baseline/<split>/`. OCR đã cache sẽ được
+tái sử dụng; chỉ dùng `--refresh-cache` khi cần chạy lại OCR.
+
+Baseline development hiện tại (40 ảnh):
+
+| Trường | Coverage | Chỉ số chính |
+|---|---:|---:|
+| Seller | 94,87% | Fuzzy similarity: 44,95% |
+| Address | 97,22% | Fuzzy similarity: 52,31% |
+| Timestamp | 79,41% | Exact match: 67,65% |
+| Total cost | 53,85% | Exact numeric match: 35,90% |
+| Macro | 81,34% | Exact match: 30,43% |
+
+## Dùng pipeline
 
 ```python
 from receipt_ocr.pipeline import ReceiptOCRPipeline
 
-pipeline = ReceiptOCRPipeline()
-result = pipeline.run("data/raw/example.jpg")
+result = ReceiptOCRPipeline().run("data/raw/example.jpg")
 ```
 
-Preprocessing and result storage are disabled by default. Storage can be enabled
-with `storage.enabled: true`; preprocessing will be integrated in a subsequent
-experiment step.
+Muốn ghi vào `data/processed/receipts.jsonl`, đặt `storage.enabled: true` trong
+`configs/default.yaml`.
 
-## Experiments
-
-Experiments should compare controlled pipeline variants, including direct OCR
-versus preprocessed OCR, and regex versus keyword or fuzzy field extraction.
-Store experiment configuration separately and write generated artifacts to
-`reports/` rather than embedding reusable logic in notebooks.
-
-## Results
-
-Evaluation will report field-level extraction quality and data quality changes
-before and after cleaning, normalization, and validation. Generated metrics,
-figures, and tables belong in their matching `reports/` subdirectories.
-
-## OCR baseline POC
-
-The baseline uses the pretrained Tesseract `vie+eng` language models and does
-not train or fine-tune an OCR model. Install Tesseract OCR, include the `vie`
-and `eng` traineddata files, and make sure `tesseract` is available on `PATH`.
-
-Run a reproducible random sample of 40 receipts:
+## Kiểm thử
 
 ```bash
-python scripts/run_ocr_baseline.py --sample-size 40 --seed 42
+python -m pytest -q
 ```
 
-The first run creates a persistent `development`/`final` split manifest and a
-content-addressed OCR cache. Re-running the command reuses OCR while allowing
-the extraction and evaluation rules to change:
+## Việc tiếp theo
 
-```bash
-# Rule development only; this is the default split.
-python scripts/run_ocr_baseline.py --split development --sample-size 40
-
-# Final reporting after rules are frozen. A sample size of 0 means all images
-# assigned to the final split.
-python scripts/run_ocr_baseline.py --split final --sample-size 0
-```
-
-Use `--refresh-cache` only when OCR itself must be rerun. Cache keys include the
-image contents, OCR engine/language/PSM, and preprocessing configuration, so a
-future preprocessing variant cannot silently reuse incompatible OCR output.
-
-Artifacts are written below `reports/metrics/ocr_baseline/<split>/`: `sample.csv`,
-`raw_ocr.jsonl`, `results.csv`, `results_detailed.csv`, `metrics.json`, and
-`error_examples.csv`. `experiment.json` records the manifest hash, OCR settings,
-cache hit/miss counts, seed, and source paths.
-
-Reuse the exact same sample after changing extraction rules:
-
-```bash
-python scripts/run_ocr_baseline.py \
-  --sample-file reports/metrics/ocr_baseline/development/sample.csv
-```
+- Tích hợp preprocessing ảnh và so sánh với ảnh gốc.
+- Thử nghiệm các chế độ Tesseract PSM.
+- Cải thiện rule cho seller, address và total cost.
+- Chạy tập final và bổ sung notebook báo cáo.
