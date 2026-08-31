@@ -3,7 +3,7 @@ project:
   random_seed: 42
 
 preprocessing:
-  enabled: true
+  enabled: false
   grayscale: true
   denoise: false
   deskew: false
@@ -11,8 +11,12 @@ preprocessing:
 
 ocr:
   engine: tesseract
-  language: eng
+  language: vie+eng
+  page_segmentation_mode: 6
   confidence_threshold: 0.50
+  cache:
+    enabled: true
+    directory: data/interim/mc_ocr2021/ocr_cache
 
 extraction:
   methods:
@@ -21,12 +25,13 @@ extraction:
   fuzzy_matching: false
   fuzzy_threshold: 0.85
   fields:
-    - store_name
-    - date
-    - total_amount
+    - seller
+    - address
+    - timestamp
+    - total_cost
 
 storage:
+  enabled: false
   format: jsonl
   output_dir: data/processed
   save_intermediate_results: true
-

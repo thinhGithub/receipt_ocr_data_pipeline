@@ -10,11 +10,12 @@ focus of the project.
 ## Problem Statement
 
 Receipt images are unstructured and vary in layout, image quality, language,
-and formatting. This project initially extracts and standardizes three fields:
+and formatting. The pipeline extracts and normalizes four fields:
 
-- Store name
-- Date
-- Total amount
+- Seller
+- Address
+- Timestamp
+- Total cost
 
 The goal is to make every processing stage independently testable and easy to
 replace while keeping the POC simple.
@@ -76,7 +77,8 @@ OCR engines and their Python adapters will be added after an engine is chosen.
 
 ## Usage
 
-The pipeline is currently a skeleton. The intended entry point is:
+The end-to-end entry point loads `configs/default.yaml` and runs OCR, text
+cleaning, field extraction, normalization, and validation:
 
 ```python
 from receipt_ocr.pipeline import ReceiptOCRPipeline
@@ -85,8 +87,9 @@ pipeline = ReceiptOCRPipeline()
 result = pipeline.run("data/raw/example.jpg")
 ```
 
-Each processing stage will be implemented behind the corresponding module in
-`src/receipt_ocr/`.
+Preprocessing and result storage are disabled by default. Storage can be enabled
+with `storage.enabled: true`; preprocessing will be integrated in a subsequent
+experiment step.
 
 ## Experiments
 
@@ -101,3 +104,43 @@ Evaluation will report field-level extraction quality and data quality changes
 before and after cleaning, normalization, and validation. Generated metrics,
 figures, and tables belong in their matching `reports/` subdirectories.
 
+## OCR baseline POC
+
+The baseline uses the pretrained Tesseract `vie+eng` language models and does
+not train or fine-tune an OCR model. Install Tesseract OCR, include the `vie`
+and `eng` traineddata files, and make sure `tesseract` is available on `PATH`.
+
+Run a reproducible random sample of 40 receipts:
+
+```bash
+python scripts/run_ocr_baseline.py --sample-size 40 --seed 42
+```
+
+The first run creates a persistent `development`/`final` split manifest and a
+content-addressed OCR cache. Re-running the command reuses OCR while allowing
+the extraction and evaluation rules to change:
+
+```bash
+# Rule development only; this is the default split.
+python scripts/run_ocr_baseline.py --split development --sample-size 40
+
+# Final reporting after rules are frozen. A sample size of 0 means all images
+# assigned to the final split.
+python scripts/run_ocr_baseline.py --split final --sample-size 0
+```
+
+Use `--refresh-cache` only when OCR itself must be rerun. Cache keys include the
+image contents, OCR engine/language/PSM, and preprocessing configuration, so a
+future preprocessing variant cannot silently reuse incompatible OCR output.
+
+Artifacts are written below `reports/metrics/ocr_baseline/<split>/`: `sample.csv`,
+`raw_ocr.jsonl`, `results.csv`, `results_detailed.csv`, `metrics.json`, and
+`error_examples.csv`. `experiment.json` records the manifest hash, OCR settings,
+cache hit/miss counts, seed, and source paths.
+
+Reuse the exact same sample after changing extraction rules:
+
+```bash
+python scripts/run_ocr_baseline.py \
+  --sample-file reports/metrics/ocr_baseline/development/sample.csv
+```
