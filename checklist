@@ -1,3 +1,4 @@
 Tổng hợp câu hỏi của BA
 - Timestamp mà có giờ vào/ giờ ra thì lấy giờ nào?
 - orientation correction nên nằm trong preprocessing
+- SELLER_ALIASES có phải là một cách tốt?

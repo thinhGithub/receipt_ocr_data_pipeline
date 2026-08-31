@@ -9,6 +9,7 @@ def test_normalization() -> None:
     assert normalize_text("TỔNG TIỀN") == "tong tien"
     assert normalize_timestamp("Ngày: 21/05/2020 20 : 42 : 52") == "2020-05-21 20:42:52"
     assert numeric_amount("Tổng cộng 72,000 VNĐ") == "72000"
+    assert numeric_amount("Tiền thanh toán 19 000") == "19000"
 
 
 def test_timestamp_with_time_before_date() -> None:
@@ -56,6 +57,47 @@ def test_extract_multiline_address() -> None:
     assert fields["address"] == (
         "104 Trần Phú - phường Cẩm Tây - Thành phố Cẩm Phả - Quảng Ninh"
     )
+
+
+def test_seller_skips_noisy_header_and_uses_known_alias() -> None:
+    fields = extract_fields([
+        "i ee, _.Ắ_Ắ. .Ă.__ớ tt ]",
+        "VM+ QNH Dự án KDC lấn biển cọc 6",
+        "VinCommerce TP, Cẩm Phả, T. Quảng Ninh",
+    ])
+    assert fields["seller"] == "VinCommerce"
+
+
+def test_address_merges_lines_before_anchor_and_strips_seller() -> None:
+    fields = extract_fields([
+        "VinCommerce",
+        "VM+ QNH Dự án KDC lấn biển cọc 6",
+        "DA khu DCLB cọc 6, P. Cẩm Sơn",
+        "VinCommerce TP. Cẩm Phả, T. Quảng Ninh",
+        "024.71066866",
+        "HÓA ĐƠN BÁN HÀNG",
+    ])
+    assert fields["address"] == (
+        "VM+ QNH Dự án KDC lấn biển cọc 6 DA khu DCLB cọc 6, P. Cẩm Sơn "
+        "TP. Cẩm Phả, T. Quảng Ninh"
+    )
+
+
+def test_total_prefers_payable_amount_over_discount() -> None:
+    fields = extract_fields([
+        "TỔNG TIỀN PHẢI T.TOÁN 8.435",
+        "TỔNG TIỀN ĐÃ GIẢM -4.541",
+        "TIỀN KHÁCH TRẢ 8.435",
+    ])
+    assert fields["total_cost"] == "8.435"
+
+
+def test_total_prefers_grand_total_when_later_total_is_ocr_error() -> None:
+    fields = extract_fields([
+        "Tổng cộng: 222,000",
+        "Tổng tiền: 222,100",
+    ])
+    assert fields["total_cost"] == "222,000"
 
 
 def test_evaluation() -> None:

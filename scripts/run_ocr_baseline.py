@@ -17,6 +17,7 @@ if str(SRC_DIR) not in sys.path:
 
 from receipt_ocr.evaluation import evaluate_results, similarity
 from receipt_ocr.evaluation_protocol import load_or_create_manifest
+from receipt_ocr.cleaning import clean_ocr_lines
 from receipt_ocr.extraction import extract_fields
 from receipt_ocr.normalization import numeric_amount, normalize_timestamp
 from receipt_ocr.ocr import check_tesseract, run_tesseract
@@ -177,7 +178,8 @@ def main() -> None:
             )
             cache_hits += int(cache_hit)
             raw_file.write(json.dumps({"img_id": gt_row["img_id"], "cache_key": cache_key, **ocr}, ensure_ascii=False) + "\n")
-            fields = extract_fields([line["text"] for line in ocr["lines"]])
+            cleaned_lines = clean_ocr_lines([line["text"] for line in ocr["lines"]])
+            fields = extract_fields(cleaned_lines)
             records.append({
                 "img_id": gt_row["img_id"],
                 "seller_gt": gt_row.get("seller"), "seller_pred": fields["seller"],

@@ -94,7 +94,7 @@ def numeric_amount(value: object) -> str:
     """Return the last plausible monetary number as integer minor-free text."""
     text = str(value or "")
     candidates = re.findall(
-        r"(?<!\d)\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{2})?(?!\d)"
+        r"(?<!\d)\d{1,3}(?:[.,\s]\d{3})+(?:[.,]\d{2})?(?!\d)"
         r"|(?<!\d)\d{4,12}(?!\d)",
         text,
     )

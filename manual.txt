@@ -127,3 +127,7 @@ Những lỗi hoặc vấn đề thiết kế hiện tại
 
 Lần 1: 40 ảnh · Coverage 81.3% · Exact match 30.4%
 Lần 2: 40 ảnh · Coverage 82.6% · Exact match 36.9% (resize & orient)
+
+python scripts/run_ocr_baseline.py --split development --sample-file reports/metrics/ocr_baseline/development/sample.csv --preprocessing orientation_crop_resize --preprocessed-dir data/interim/mc_ocr2021/preprocessed/ocr_step4 --resize-width 1600 --crop-padding 0.01 --min-receipt-area 0.08 --min-crop-score 0.38 --output-dir reports/metrics/ocr_step4
+
+python scripts/build_html_report.py --results reports/metrics/ocr_step4/development/results_detailed.csv
